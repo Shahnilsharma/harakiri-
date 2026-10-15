@@ -19,6 +19,7 @@ import { Card, CardAction, CardContent, CardFooter, CardHeader } from "@/compone
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ActivityFeed, Reply } from "@/components/gossip";
 import { cn } from "@/lib/utils";
 
 type Step = { tool: string; args: unknown; result: any; error?: boolean };
@@ -91,14 +92,14 @@ export default function Home() {
           {status && <Label>Model: {status.model}</Label>}
         </div>
         <h1 className="text-5xl leading-[0.9] font-bold tracking-[-0.045em] uppercase md:text-7xl">
-          Agentic <span className="text-primary">starter.</span>
+          Onchain <span className="text-primary">gossip.</span>
         </h1>
         <p className="max-w-xl text-lg text-muted-foreground">
-          An AI agent that uses your tools and pays for APIs with its own wallet.
+          Ask what anyone is doing on-chain. The agent pays for real data with its own wallet, then spills the tea.
         </p>
       </header>
 
-      <div className="grid flex-1 gap-6 lg:grid-cols-[380px_1fr]">
+      <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
         {/* Left: setup + tools */}
         <aside className="flex flex-col gap-6">
           <Card>
@@ -106,11 +107,11 @@ export default function Home() {
               <SectionTitle num="01" title="Setup" />
             </CardHeader>
             <CardContent className="flex flex-col">
-              <SetupStep number={1} title="Add your Gemini API key" done={ready}>
+              <SetupStep number={1} title="Add your Groq API key" done={ready}>
                 {status && !ready && (
                   <p className="text-muted-foreground">
-                    Paste it into <Code>.env</Code> as <Code>GEMINI_API_KEY</Code>, then restart <Code>npm run dev</Code>.{" "}
-                    <a className="text-primary underline underline-offset-4" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+                    Paste it into <Code>.env</Code> as <Code>GROQ_API_KEY</Code>, then restart <Code>npm run dev</Code>.{" "}
+                    <a className="text-primary underline underline-offset-4" href="https://console.groq.com/keys" target="_blank" rel="noreferrer">
                       Get a free key
                     </a>
                   </p>
@@ -178,7 +179,7 @@ export default function Home() {
                     <p className="text-2xl font-bold tracking-tight uppercase">Ask your agent something</p>
                     <p className="mt-1 text-muted-foreground">
                       {!ready
-                        ? "Add your Gemini API key to start."
+                        ? "Add your Groq API key to start."
                         : wallet && !wallet.address
                           ? "Tip: create a wallet and fund it with Base Sepolia USDC so the agent can pay GoldRush."
                           : "Pick an example to start."}
@@ -200,16 +201,23 @@ export default function Home() {
                     {m.text}
                   </div>
                 ) : (
-                  <div key={i} className="flex max-w-[85%] gap-3 self-start">
+                  <div key={i} className="flex w-full gap-2 self-start md:w-auto md:max-w-[85%] md:gap-3">
                     <div className="flex size-8 shrink-0 items-center justify-center border">
                       <Bot className="size-4 text-primary" />
                     </div>
                     <div className="flex min-w-0 flex-col gap-2">
                       {m.steps?.map((s, j) => <ToolCall key={j} step={s} />)}
-                      <div className={cn("px-4 py-2.5 whitespace-pre-wrap", m.error ? "flex gap-2 bg-destructive/10 text-destructive" : "bg-muted")}>
-                        {m.error && <CircleAlert className="mt-0.5 size-4 shrink-0" />}
-                        <Linkify text={m.text} />
-                      </div>
+                      {m.steps?.map((s, j) => s.tool === "get_wallet_activity" && s.result?.transactions && <ActivityFeed key={j} data={s.result} />)}
+                      {m.error ? (
+                        <div className="flex gap-2 bg-destructive/10 px-4 py-2.5 whitespace-pre-wrap text-destructive">
+                          <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                          <Linkify text={m.text} />
+                        </div>
+                      ) : (
+                        <div className="border-l-2 border-primary bg-muted px-4 py-3">
+                          <Reply text={m.text} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -237,7 +245,7 @@ export default function Home() {
                 <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={ready ? "ask your agent something..." : "add your Gemini API key to start"}
+                  placeholder={ready ? "ask your agent something..." : "add your Groq API key to start"}
                   disabled={!ready}
                   className="h-11 border-0 bg-transparent font-mono focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
                 />
@@ -335,7 +343,7 @@ function ToolCall({ step }: { step: Step }) {
   const payment = step.result?.payment;
   return (
     <Collapsible className="border font-mono text-xs">
-      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted">
+      <CollapsibleTrigger className="group flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left hover:bg-muted">
         <ChevronRight className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
         <span className="text-muted-foreground uppercase">Tool</span>
         <span className="text-primary">{step.tool}</span>
