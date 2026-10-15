@@ -68,7 +68,10 @@ export async function getWalletBalance() {
  * (payAndFetch below is the template's toy version, only understood by our own /api/weather.)
  */
 export async function x402Fetch(url: string) {
-  const client = new x402Client().register("eip155:84532", new ExactEvmScheme(requireAccount()));
+  // Hard cap per payment, enforced by the x402 client before signing (its default is $1).
+  const client = new x402Client()
+    .setSpendControls({ maxAmountPerPayment: "$0.05" })
+    .register("eip155:84532", new ExactEvmScheme(requireAccount()));
   const res = await wrapFetchWithPayment(fetch, client)(url);
   const body = await res.json().catch(() => null);
   if (!res.ok) {

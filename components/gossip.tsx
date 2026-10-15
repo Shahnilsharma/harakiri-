@@ -19,6 +19,17 @@ type Tx = {
 };
 export type Activity = { address: string; chain: string; transactions: Tx[] };
 
+// Only explorer links are clickable; any other URL (e.g. one smuggled in via a token name) renders as plain text.
+const SAFE_HOSTS = ["etherscan.io", "basescan.org", "sepolia.basescan.org", "arbiscan.io", "optimistic.etherscan.io", "polygonscan.com"];
+const isSafe = (href: string) => {
+  try {
+    const u = new URL(href);
+    return u.protocol === "https:" && SAFE_HOSTS.includes(u.hostname.replace(/^www\./, ""));
+  } catch {
+    return false;
+  }
+};
+
 const short = (a = "") => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 const num = (n: number) => new Intl.NumberFormat("en", { notation: "compact", maximumSignificantDigits: 3 }).format(n);
 const usd = (n: number) => new Intl.NumberFormat("en", { style: "currency", currency: "USD", notation: "compact", maximumSignificantDigits: 3 }).format(n);
@@ -155,6 +166,7 @@ export function Reply({ text }: { text: string }) {
           th: (p) => <th className="border-b px-2 py-1 text-left text-muted-foreground uppercase" {...p} />,
           td: (p) => <td className="border-b px-2 py-1" {...p} />,
           a: ({ href = "", children }) => {
+            if (!isSafe(href)) return <span className="text-muted-foreground">{children}</span>;
             const bare = typeof children === "string" && children === href;
             const host = bare ? new URL(href).hostname.replace(/^www\./, "").split(".")[0] : "";
             return (
