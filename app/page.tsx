@@ -208,7 +208,7 @@ export default function Home() {
                       {m.steps?.map((s, j) => <ToolCall key={j} step={s} />)}
                       <div className={cn("px-4 py-2.5 whitespace-pre-wrap", m.error ? "flex gap-2 bg-destructive/10 text-destructive" : "bg-muted")}>
                         {m.error && <CircleAlert className="mt-0.5 size-4 shrink-0" />}
-                        {m.text}
+                        <Linkify text={m.text} />
                       </div>
                     </div>
                   </div>
@@ -322,8 +322,8 @@ function WalletDetails({ wallet, onRefresh }: { wallet: WalletInfo; onRefresh: (
         <a className="inline-flex items-center gap-1 hover:text-primary" href={`https://sepolia.basescan.org/address/${address}`} target="_blank" rel="noreferrer">
           Explorer <ExternalLink className="size-3" />
         </a>
-        <a className="inline-flex items-center gap-1 hover:text-primary" href="https://docs.base.org/base-chain/tools/network-faucets" target="_blank" rel="noreferrer">
-          Get test ETH <ExternalLink className="size-3" />
+        <a className="inline-flex items-center gap-1 hover:text-primary" href="https://faucet.circle.com" target="_blank" rel="noreferrer">
+          Get test USDC <ExternalLink className="size-3" />
         </a>
       </div>
       <p className="text-xs text-muted-foreground">Base Sepolia testnet. Saved in .agent-wallet.json.</p>
@@ -342,11 +342,29 @@ function ToolCall({ step }: { step: Step }) {
         {payment && <Badge className="ml-auto bg-blue font-mono text-foreground uppercase">Paid {payment.amount}</Badge>}
         {step.error && <Badge variant="destructive" className="ml-auto font-mono uppercase">Failed</Badge>}
       </CollapsibleTrigger>
+      {payment?.tx && (
+        <a className="flex items-center gap-1 border-t px-3 py-1.5 text-muted-foreground hover:text-primary" href={payment.tx} target="_blank" rel="noreferrer">
+          Payment tx {payment.tx.split("/").pop().slice(0, 10)}… <ExternalLink className="size-3" />
+        </a>
+      )}
       <CollapsibleContent className="flex flex-col gap-2 border-t px-3 py-2">
         <Json label="Input" value={step.args} />
         <Json label="Output" value={step.result} />
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/** Agent replies are plain text: make the URLs in them clickable. */
+function Linkify({ text }: { text: string }) {
+  return text.split(/(https?:\/\/[^\s)]+)/).map((part, i) =>
+    i % 2 ? (
+      <a key={i} className="break-all text-primary underline underline-offset-4" href={part} target="_blank" rel="noreferrer">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
   );
 }
 

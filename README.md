@@ -77,7 +77,7 @@ Tip: say "what's Snoop Dogg doing? his ENS is cozomomedici.eth". The agent won't
 | Tool | Cost | What it does |
 | :--- | :--- | :--- |
 | `resolve_name` | Free | ENS name → address, via a public Ethereum RPC. Falls back to a few hardcoded names (vitalik, nick, sassal, jessepollak, punk6529) so the demo never fails on resolution. |
-| `get_wallet_activity` | 0.02 USDC | GoldRush `transactions_v3` (`tier=medium`) over x402. Returns the newest 40 transactions, trimmed to time, direction (`in` / `out` / `involved` = someone else's tx that only airdropped to this address), value, USD value, decoded event, and up to 3 token transfers (ones touching the address first). |
+| `get_wallet_activity` | 0.02 USDC | GoldRush `transactions_v3` (`tier=medium`) over x402. Returns the newest 40 transactions, trimmed to time, direction (`in` / `out` / `involved` = someone else's tx that only airdropped to this address), value, USD value, decoded event, up to 3 token transfers (ones touching the address first), and an explorer link. The agent cites those links, and the payment's Basescan link shows under the tool call. |
 | `get_my_wallet` | Free | The agent's own address and balance. |
 
 The template's weather, dice, joke, and country tools are still there.

@@ -24,7 +24,14 @@ const KNOWN: Record<string, string> = {
   "punk6529.eth": "0xfD22004806A6846EA67ad883356be810F0428793",
 };
 
-const CHAINS = ["eth-mainnet", "base-mainnet", "arbitrum-mainnet", "optimism-mainnet", "matic-mainnet"];
+const EXPLORERS: Record<string, string> = {
+  "eth-mainnet": "https://etherscan.io/tx/",
+  "base-mainnet": "https://basescan.org/tx/",
+  "arbitrum-mainnet": "https://arbiscan.io/tx/",
+  "optimism-mainnet": "https://optimistic.etherscan.io/tx/",
+  "matic-mainnet": "https://polygonscan.com/tx/",
+};
+const CHAINS = Object.keys(EXPLORERS);
 
 type Tx = {
   block_signed_at: string;
@@ -43,7 +50,7 @@ type Tx = {
 };
 
 /** Shrink one GoldRush tx to what the gossip actually needs (raw logs are huge). */
-function trimTx(tx: Tx, me: string) {
+function trimTx(tx: Tx, me: string, chain: string) {
   const transfers = (tx.log_events ?? [])
     .filter((l) => l.decoded?.name === "Transfer" && l.sender_contract_ticker_symbol)
     .map((l) => {
@@ -66,7 +73,7 @@ function trimTx(tx: Tx, me: string) {
     failed: !tx.successful || undefined,
     event: tx.log_events?.find((l) => l.decoded)?.decoded?.name,
     transfers: transfers.length ? transfers : undefined,
-    tx_hash: tx.tx_hash,
+    link: EXPLORERS[chain] + tx.tx_hash,
   };
 }
 
@@ -122,7 +129,7 @@ export const tools: Tool[] = [
         address: data.data.address ?? address,
         chain,
         // ponytail: newest 40 only, keeps Gemini's context small. Raise if the gossip feels thin.
-        transactions: items.slice(0, 40).map((tx) => trimTx(tx, me)),
+        transactions: items.slice(0, 40).map((tx) => trimTx(tx, me, chain)),
         payment,
       };
     },
