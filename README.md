@@ -66,7 +66,7 @@ The details are in [The tools](#the-tools).
 
 ## Social
 
-- X / Twitter: https://x.com/shahnilsharma4/status/2110684707784704153?s=20
+- X / Twitter: https://x.com/harakiripigeon
 - GitHub: https://github.com/Shahnilsharma/harakiri-
 
 ---
