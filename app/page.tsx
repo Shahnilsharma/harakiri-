@@ -11,6 +11,8 @@ import {
   RefreshCw,
   RotateCcw,
   SendHorizontal,
+  Volume2,
+  VolumeX,
   Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { SwingChain } from "@/components/swing-chain";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ActivityFeed, Reply } from "@/components/gossip";
 import { cn } from "@/lib/utils";
@@ -27,14 +30,19 @@ type Message = { role: "user" | "agent"; text: string; steps?: Step[]; error?: b
 type Status = { hasApiKey: boolean; model: string; tools: { name: string; description: string }[] };
 type WalletInfo = { address: string | null; balance?: string };
 
+// The chat survives a refresh (this browser only); only the Clear button empties it.
+const CHAT_KEY = "onchain-gossip-chat";
+const NO_MESSAGES: Message[] = [];
+
 const EXAMPLES = ["What's vitalik doing on-chain?", "Anything sus in jessepollak.eth's Base activity?", "What's in your wallet?"];
 
 export default function Home() {
   const [status, setStatus] = useState<Status | null>(null);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(NO_MESSAGES);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [progress, setProgress] = useState("");
   const [creating, setCreating] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -43,10 +51,24 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/agent").then((r) => r.json()).then(setStatus);
     loadWallet();
+    try {
+      const saved = localStorage.getItem(CHAT_KEY);
+      if (saved) setMessages(JSON.parse(saved));
+    } catch {}
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Skip the untouched initial state, so a mount (or StrictMode's double mount) never overwrites the saved chat.
+    if (messages === NO_MESSAGES) return;
+    try {
+      localStorage.setItem(CHAT_KEY, JSON.stringify(messages));
+    } catch {}
+  }, [messages]);
+
+  useEffect(() => {
+    // Scroll only the chat's own viewport. scrollIntoView would also scroll the card and the page.
+    const viewport = bottomRef.current?.closest("[data-slot=scroll-area-viewport]");
+    viewport?.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
 
   async function createWallet() {
@@ -62,6 +84,7 @@ export default function Home() {
     setMessages(history);
     setInput("");
     setThinking(true);
+    setProgress("");
 
     try {
       const res = await fetch("/api/agent", {
@@ -69,8 +92,23 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: history.filter((m) => !m.error).map(({ role, text }) => ({ role, text })) }),
       });
-      const data = await res.json();
-      setMessages((m) => [...m, data.error ? { role: "agent", text: data.error, error: true } : { role: "agent", text: data.answer, steps: data.steps }]);
+      // One JSON object per line: { status } updates, then the result. (A missing API key comes back as plain JSON.)
+      let data = { error: "The agent stopped without answering. Try again." } as { answer?: string; steps?: Step[]; error?: string };
+      let buffer = "";
+      const handle = (line: string) => {
+        if (!line.trim()) return;
+        const msg = JSON.parse(line);
+        if ("status" in msg) setProgress(msg.status);
+        else data = msg;
+      };
+      const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        const lines = (buffer + chunk.value).split("\n");
+        buffer = lines.pop()!;
+        lines.forEach(handle);
+      }
+      handle(buffer);
+      setMessages((m) => [...m, data.error ? { role: "agent", text: data.error, error: true } : { role: "agent", text: data.answer ?? "", steps: data.steps }]);
       if (data.steps?.some((s: Step) => s.result?.payment)) loadWallet();
     } catch {
       setMessages((m) => [...m, { role: "agent", text: "Could not reach the server. Is `npm run dev` still running?", error: true }]);
@@ -81,13 +119,16 @@ export default function Home() {
   const ready = Boolean(status?.hasApiKey);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-[1520px] flex-col gap-10 px-4 py-8 md:px-12 md:py-12">
+    <main className="mx-auto flex overflow-x-clip min-h-screen max-w-[1920px] flex-col gap-10 px-4 py-8 md:px-12 md:py-12">
       {/* Header */}
       <header className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Label>
-            <img src="/risein-logo.svg" alt="Rise In" className="mr-3 h-5 w-auto" />
-            <span className="text-foreground">/ Agentmaxxing</span>&nbsp;starter kit
+            <span className="relative mr-2 shrink-0">
+              <img src="/logo.png" alt="" className="size-28" />
+              <SwingChain />
+            </span>
+            <span className="text-foreground">Harakiri</span>
           </Label>
           {status && <Label>Model: {status.model}</Label>}
         </div>
@@ -150,9 +191,9 @@ export default function Home() {
                   <p className="mt-1 text-muted-foreground">{t.description}</p>
                 </div>
               ))}
-              <p className="border-t pt-4 text-muted-foreground">
+              {/* <p className="border-t pt-4 text-muted-foreground">
                 Add your own in <Code>agent/tools.ts</Code>. Save, and it shows up here.
-              </p>
+              </p> */}
             </CardContent>
           </Card>
         </aside>
@@ -223,11 +264,7 @@ export default function Home() {
                 )
               )}
 
-              {thinking && (
-                <p className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
-                  agent is thinking <span className="inline-block h-4 w-2 animate-pulse bg-primary" />
-                </p>
-              )}
+              {thinking && <ThinkingLoader status={progress} />}
               <div ref={bottomRef} />
             </div>
           </ScrollArea>
@@ -258,6 +295,81 @@ export default function Home() {
         </Card>
       </div>
     </main>
+  );
+}
+
+const LOADER_MUTED_KEY = "onchain-gossip-loader-muted";
+
+/**
+ * The loader: a centred card with the singing pigeon, a seconds counter and what the agent is really doing.
+ * It plays with sound: sending a message counts as the user interacting, which browsers require for audio.
+ * If a browser still blocks it, it plays muted and the button offers sound. The mute choice is remembered;
+ * the answer arriving unmounts it, which stops the audio.
+ */
+function ThinkingLoader({ status }: { status: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [seconds, setSeconds] = useState(0);
+  const [muted, setMuted] = useState(() => {
+    try {
+      return localStorage.getItem(LOADER_MUTED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const tick = setInterval(() => setSeconds((s) => s + 1), 1000);
+    const video = ref.current!;
+    video.muted = muted;
+    // Respect "reduce motion": stay on the poster until the user presses the button.
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      video.play().catch(() => {
+        video.muted = true;
+        setMuted(true);
+        video.play().catch(() => {});
+      });
+    return () => clearInterval(tick);
+  }, []);
+
+  function toggle() {
+    const video = ref.current!;
+    const next = video.paused ? false : !video.muted;
+    video.muted = next;
+    setMuted(next);
+    video.play().catch(() => {});
+    try {
+      localStorage.setItem(LOADER_MUTED_KEY, next ? "1" : "0");
+    } catch {}
+  }
+
+
+  return (
+    <div className="relative my-2 w-full max-w-md self-center border border-primary/40 bg-background font-mono text-xs">
+      <span role="status" className="sr-only">
+        Agent is thinking
+      </span>
+      <div className="flex items-center gap-2 border-b px-3 py-2 uppercase">
+        <span className="size-2 animate-pulse bg-primary motion-reduce:animate-none" />
+        <span className="font-bold text-foreground">Live</span>
+        <span className="text-muted-foreground">/ agent is thinking</span>
+        <span className="ml-auto text-muted-foreground tabular-nums">{seconds}s</span>
+      </div>
+      <div className="relative">
+        <video ref={ref} src="/loader.mp4" poster="/loader-poster.jpg" loop playsInline preload="auto" className="aspect-video w-full" />
+        <button
+          onClick={toggle}
+          aria-label={muted ? "Turn sound on" : "Mute"}
+          className="absolute right-2 bottom-2 flex items-center gap-1 bg-background/80 px-1.5 py-1 text-[10px] text-foreground uppercase hover:text-primary"
+        >
+          {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
+          {muted && "Sound"}
+        </button>
+      </div>
+      <p aria-hidden className="flex items-center gap-2 border-t px-3 py-2 text-muted-foreground">
+        <span className="text-primary">&gt;</span> {status || "warming up the vocals"}
+        <span className="inline-block h-3.5 w-1.5 animate-pulse bg-primary motion-reduce:animate-none" />
+      </p>
+    </div>
   );
 }
 
@@ -347,7 +459,7 @@ function ToolCall({ step }: { step: Step }) {
         <ChevronRight className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
         <span className="text-muted-foreground uppercase">Tool</span>
         <span className="text-primary">{step.tool}</span>
-        {payment && <Badge className="ml-auto bg-blue font-mono text-foreground uppercase">Paid {payment.amount}</Badge>}
+        {payment && <Badge className="ml-auto bg-primary/10 font-mono text-primary uppercase ring-1 ring-inset ring-primary/50">Paid {payment.amount}</Badge>}
         {step.error && <Badge variant="destructive" className="ml-auto font-mono uppercase">Failed</Badge>}
       </CollapsibleTrigger>
       {payment?.tx && (

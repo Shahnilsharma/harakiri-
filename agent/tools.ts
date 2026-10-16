@@ -2,16 +2,13 @@
  * YOUR AGENT'S TOOLS
  *
  * A tool is just a function the agent is allowed to call.
- * Gemini reads the `description` to decide WHEN to use it,
+ * The model reads the `description` to decide WHEN to use it,
  * and `parameters` to know WHAT to pass in.
- *
- * Add your own tool: copy one of the objects below, change it,
- * and save. It shows up in the "Tools" list on the page.
  */
 import { createPublicClient, http, isAddress } from "viem";
 import { mainnet } from "viem/chains";
 import { normalize } from "viem/ens";
-import { getWalletAddress, getWalletBalance, payAndFetch, x402Fetch } from "./wallet";
+import { getWalletAddress, getWalletBalance, x402Fetch } from "./wallet";
 
 const ens = createPublicClient({ chain: mainnet, transport: http() });
 
@@ -77,18 +74,23 @@ function trimTx(tx: Tx, me: string, chain: string) {
   };
 }
 
+const short = (a = "") => (/^0x[0-9a-f]{40}$/i.test(a) ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
+
 export type Tool = {
   name: string;
   description: string;
   /** JSON Schema describing the inputs. */
   parameters: object;
   /** The code that runs when the agent calls this tool. */
-  run: (args: any, ctx: { baseUrl: string }) => Promise<unknown>;
+  run: (args: any) => Promise<unknown>;
+  /** What the loader says while it runs. */
+  status?: (args: any) => string;
 };
 
 export const tools: Tool[] = [
   {
     name: "resolve_name",
+    status: ({ name }) => `resolving ${name}`,
     description:
       "Turn a person's ENS name into an Ethereum address. Pass a full name like vitalik.eth; a bare name like 'vitalik' gets .eth added. Free.",
     parameters: {
@@ -106,6 +108,7 @@ export const tools: Tool[] = [
 
   {
     name: "get_wallet_activity",
+    status: ({ address }) => `paying GoldRush 0.02 USDC for ${short(address)}'s transactions`,
     description:
       "Get the most recent real on-chain transactions of any address via GoldRush. Costs 0.02 test USDC per call, paid by x402 from the agent's wallet. Pass a 0x address or an ENS name.",
     parameters: {
@@ -128,32 +131,16 @@ export const tools: Tool[] = [
       return {
         address: data.data.address ?? address,
         chain,
-        // ponytail: newest 40 only, keeps Gemini's context small. Raise if the gossip feels thin.
+        // ponytail: newest 40 only, keeps the model's context small. Raise if the gossip feels thin.
         transactions: items.slice(0, 40).map((tx) => trimTx(tx, me, chain)),
         payment,
       };
     },
   },
 
-  // ─── 1. A paid API: the agent's wallet signs a payment to unlock it ───
-  {
-    name: "get_weather",
-    description: "Get the current weather for a city. Costs 0.01 USDC, paid automatically from the agent's wallet.",
-    parameters: {
-      type: "object",
-      properties: {
-        city: { type: "string", description: "City name, e.g. Mumbai" },
-      },
-      required: ["city"],
-    },
-    run: async ({ city }, { baseUrl }) => {
-      return payAndFetch(`${baseUrl}/api/weather?city=${encodeURIComponent(city)}`);
-    },
-  },
-
-  // ─── 2. Wallet tool: read the agent's own wallet ───
   {
     name: "get_my_wallet",
+    status: () => "checking its own wallet",
     description: "Get the agent's own wallet address and its ETH and USDC balance on Base Sepolia (testnet).",
     parameters: { type: "object", properties: {} },
     run: async () => ({
@@ -162,58 +149,4 @@ export const tools: Tool[] = [
       network: "Base Sepolia (testnet)",
     }),
   },
-
-  // ─── 3. A plain tool: no wallet, no API. Try changing this one first! ───
-  {
-    name: "roll_dice",
-    description: "Roll a dice with the given number of sides.",
-    parameters: {
-      type: "object",
-      properties: {
-        sides: { type: "number", description: "How many sides the dice has. Default 6." },
-      },
-    },
-    run: async ({ sides = 6 }) => ({ rolled: Math.floor(Math.random() * sides) + 1, sides }),
-  },
-  
-  {
-    name: "get_joke",
-    description: "Get a random joke. Use when the user wants a joke.",
-    parameters: { type: "object", properties: {} },
-    run: async () => {
-      const res = await fetch(
-        "https://official-joke-api.appspot.com/random_joke"
-        );
-      return res.json();
-    },
-  },
-
-  {
-  name: "get_country_info",
-  description: "Get facts about a country, including its capital and population.",
-  parameters: {
-    type: "object",
-    properties: {
-      country: {
-        type: "string",
-        description: "Country name, e.g. India",
-      },
-    },
-    required: ["country"],
-  },
-  run: async ({ country }) => {
-    const res = await fetch(
-      `https://restcountries.com/v3.1/name/${encodeURIComponent(country)}`
-    );
-    if (!res.ok) {
-      throw new Error(`Country not found: ${country}`);
-    }
-    const [data] = await res.json();
-    return {
-      capital: data.capital?.[0] ?? "unknown",
-      population: data.population,
-      region: data.region,
-    };
-  },
-}
 ];

@@ -44,7 +44,7 @@ function ago(iso: string) {
 const PILL = {
   in: { label: "IN", className: "bg-primary text-primary-foreground" },
   out: { label: "OUT", className: "bg-destructive text-background" },
-  involved: { label: "TAGGED", className: "bg-blue text-foreground" },
+  involved: { label: "TAGGED", className: "bg-primary/10 text-primary ring-1 ring-inset ring-primary/50" },
 };
 
 /** What this tx did to the watched address, in one line: "+10M VACCINU", "−0.17 ETH", "Approval"... */
@@ -118,16 +118,27 @@ export function ActivityFeed({ data }: { data: Activity }) {
 }
 
 const SUS_LINE = /^.*sus\W*o\W*meter\D*?(\d{1,2})\s*\/\s*10\W*(.*)$/im;
-const VERDICTS = ["squeaky clean", "squeaky clean", "squeaky clean", "mildly spicy", "mildly spicy", "side-eye", "side-eye", "sus", "sus", "ultra sus", "ultra sus"];
+// One row per state: the pigeon's reaction (public/sus/sus-<img>.png), its label and the bar colour.
+const SUS_STATES = [
+  { max: 2, label: "squeaky clean", img: "clean", color: "bg-primary" },
+  { max: 4, label: "mildly spicy", img: "spicy", color: "bg-amber-400" },
+  { max: 6, label: "side-eye", img: "side-eye", color: "bg-amber-400" },
+  { max: 8, label: "sus", img: "sus", color: "bg-destructive" },
+  { max: 10, label: "ultra sus", img: "ultra", color: "bg-destructive" },
+];
 
 function SusMeter({ score, why }: { score: number; why: string }) {
-  const color = score <= 3 ? "bg-primary" : score <= 6 ? "bg-amber-400" : "bg-destructive";
+  const { label, img, color } = SUS_STATES.find((s) => score <= s.max)!;
   return (
-    <div className="mt-3 border-t pt-3">
-      <div className="flex items-baseline justify-between font-mono uppercase">
-        <span className="text-xs text-muted-foreground">Sus-o-meter</span>
-        <span className="text-xs text-muted-foreground">{VERDICTS[score]}</span>
-      </div>
+    <div className="mt-3 flex items-center gap-3 border-t pt-3 sm:min-w-80">
+      <img
+        src={`/sus/sus-${img}.png`}
+        alt={label}
+        title={label}
+        className="size-20 shrink-0 animate-in duration-500 fade-in zoom-in-50 motion-reduce:animate-none md:size-24"
+      />
+      <div className="min-w-0 flex-1">
+      <span className="font-mono text-xs text-muted-foreground uppercase">Sus-o-meter</span>
       <div className="mt-1.5 flex items-center gap-3">
         <span className="font-mono text-3xl leading-none font-bold">{score}<span className="text-base text-muted-foreground">/10</span></span>
         <div className="flex flex-1 gap-1" role="meter" aria-valuenow={score} aria-valuemin={0} aria-valuemax={10} aria-label="Sus-o-meter">
@@ -137,12 +148,15 @@ function SusMeter({ score, why }: { score: number; why: string }) {
         </div>
       </div>
       {why && <p className="mt-2 text-sm text-muted-foreground">{why}</p>}
+      </div>
     </div>
   );
 }
 
 /** The agent's markdown reply, with explorer links shrunk to chips and the sus line turned into a meter. */
-export function Reply({ text }: { text: string }) {
+export function Reply({ text: raw }: { text: string }) {
+  // gpt-oss writes narrow/thin spaces (U+202F, U+2009) between numbers and units; in our font they're ~1px wide.
+  const text = raw.replace(/[\u202F\u2009\u200A]/g, " ");
   const m = text.match(SUS_LINE);
   const score = m ? Math.min(10, Number(m[1])) : null;
   const body = m ? text.replace(m[0], "") : text;

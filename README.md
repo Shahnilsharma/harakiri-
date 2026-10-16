@@ -1,6 +1,77 @@
-# Onchain Gossip
+<p align="center"><img src="public/Harakiri.png" alt="Harakiri logo" width="96"></p>
+
+# Harakiri | Onchain Gossip
 
 **Ask what anyone is doing on-chain. The agent pays for the answer with its own wallet.**
+
+**Live app:** https://harakiri-one.vercel.app
+
+## The problem
+
+Wallet activity is public, but reading it is not. Block explorers show raw hex, hundreds of spam airdrops and decoded events nobody understands. Good transaction data sits behind API keys and subscriptions. Harakiri turns "what is this wallet up to?" into a plain-English answer: the agent pays for the data itself (per request, over x402, no API key or account) and reports the newest, biggest and weirdest moves, with a link for every claim.
+
+## Key features
+
+- **An agent with its own wallet.** It signs x402 payments (EIP-3009 USDC on Base Sepolia) to buy data from GoldRush, 0.02 USDC per lookup.
+- **Real mainnet data.** Ethereum, Base, Arbitrum, Optimism and Polygon transactions, not mocks.
+- **ENS resolution.** Ask about `vitalik` or `nick.eth`; it finds the address.
+- **Dossier card.** Each lookup shows in/out counts, tokens, and IN / OUT / TAGGED pills that link to the explorer.
+- **Sus-o-meter.** Every answer ends with a 0-10 rating and a one-line reason.
+- **Spend guardrails in code.** At most $0.05 per payment and 2 paid lookups per question; testnet only.
+- **Prompt-injection defenses.** Token names are treated as untrusted data, and only explorer links are clickable (allowlist).
+- **Multi-wallet questions.** Covers 2 wallets per question and names the ones it skipped.
+
+## Supported AI models
+
+| Provider | Model | Notes |
+| :--- | :--- | :--- |
+| [Groq](https://console.groq.com/docs/models) (OpenAI-compatible API, `openai` SDK 7.25.0) | `openai/gpt-oss-120b` | Default. Tool calling. |
+
+You can swap in any Groq model that supports tool use with `GROQ_MODEL` in `.env`. There is no in-app model switcher.
+
+## Tools
+
+| Tool | Cost | What it does |
+| :--- | :--- | :--- |
+| `resolve_name` | Free | ENS name to address. |
+| `get_wallet_activity` | 0.02 test USDC (x402) | Newest 40 transactions for an address on a chosen chain, via GoldRush. |
+| `get_my_wallet` | Free | The agent's own address and ETH/USDC balance. |
+
+The details are in [The tools](#the-tools).
+
+## Tech stack
+
+| Layer | What | Version |
+| :--- | :--- | :--- |
+| Runtime | Node.js | 20+ (built on 24.19.0) |
+| Framework | Next.js (App Router, API routes) | 16.4.0 |
+| UI | React / React DOM | 19.3.0 |
+| Styling | Tailwind CSS, shadcn/ui, Base UI | 4.3.3 / 4.21.5 / 1.9.0 |
+| Markdown replies | react-markdown, remark-gfm | 10.1.0 / 4.0.1 |
+| Icons | lucide-react | 1.57.0 |
+| LLM client | openai (pointed at Groq) | 7.25.0 |
+| Wallet / chain | viem | 2.57.6 |
+| Payments | @x402/core, @x402/fetch, @x402/evm | 2.28.0 |
+| Data | GoldRush `transactions_v3` over x402 | - |
+| Language | TypeScript | 5.9.3 |
+
+
+
+## Future scope
+
+- **Week 3:** watchlists with alerts when a followed wallet makes a big move; gossip about NFT and DeFi positions, not just transfers.
+- Rate limiting and a per-day spend budget for the public endpoint.
+- ZK proof that the agent's data really came from the paid API (verifiable gossip).
+- Agent-to-agent: let other agents pay this one over x402 for a gossip report.
+
+## Social
+
+- X / Twitter: https://x.com/shahnilsharma4/status/2110684707784704153?s=20
+- GitHub: https://github.com/Shahnilsharma/harakiri-
+
+---
+
+## How it answers
 
 > "What's vitalik doing on-chain?"
 
@@ -82,25 +153,6 @@ Tip: say "what's Snoop Dogg doing? his ENS is cozomomedici.eth". The agent won't
 | `get_wallet_activity` | 0.02 USDC | GoldRush `transactions_v3` (`tier=medium`) over x402. Returns the newest 40 transactions, trimmed to time, direction (`in` / `out` / `involved` = someone else's tx that only airdropped to this address), value, USD value, decoded event, up to 3 token transfers (ones touching the address first), and an explorer link. The agent cites those links, and the payment's Basescan link shows under the tool call. |
 | `get_my_wallet` | Free | The agent's own address and balance. |
 
-The template's weather, dice, joke, and country tools are still there.
-
-## Writing Good Tools
-
-Every tool has four parts.
-
-| Field | Purpose |
-| :--- | :--- |
-| `name` | A unique identifier in snake case, such as `get_weather`. |
-| `description` | Plain English explaining what the tool does. The model reads this to decide when to use it, so be clear and specific. |
-| `parameters` | A JSON Schema describing the inputs. The model fills in these values for you. |
-| `run` | The function that does the work. Whatever it returns is sent back to the model (oversized results are trimmed to the newest items so they fit Groq's free-tier token limit). |
-
-A few guidelines:
-
-1. Return plain objects, for example `{ temperature: 28 }`, rather than strings or class instances.
-2. Keep each tool focused on one job. Several small tools work better than one large tool.
-3. If something can fail, let it throw. The agent loop catches the error and reports it back to the model, which can then explain the problem or try again.
-
 ## How It Works
 
 ### The agent loop
@@ -110,21 +162,7 @@ The loop lives in `agent/agent.ts`.
 1. Your message and the list of tools are sent to Groq (`openai` SDK, `baseURL: https://api.groq.com/openai/v1`).
 2. If the model replies with `tool_calls`, the matching `run` functions are executed and each result goes back as a `role: "tool"` message with its `tool_call_id`.
 3. This repeats until the model replies with plain text, which becomes the final answer.
-4. The loop stops after five rounds to prevent runaway tool calls.
-
-### Paying for an API
-
-The weather tool demonstrates the x402 pattern, where an agent pays for an API one request at a time.
-
-1. The agent requests `/api/weather`.
-2. The API responds with status `402 Payment Required` along with a price, an asset, and a recipient address.
-3. The agent wallet signs a payment message for that amount.
-4. The agent repeats the request with the signed payment in an `X-PAYMENT` header.
-5. The API verifies the signature and responds with status `200 OK` and the weather data.
-
-All of this is handled by the `payAndFetch` helper in `agent/wallet.ts`. Any tool that calls a paid API can use the same helper.
-
-`payAndFetch` is the template's toy version: it signs a message that only our mock `/api/weather` understands, and nothing touches a blockchain.
+4. The loop stops after eight rounds to prevent runaway tool calls, and refuses a third paid lookup in one question.
 
 ### Real x402 (GoldRush)
 
@@ -140,11 +178,12 @@ All of this is handled by the `payAndFetch` helper in `agent/wallet.ts`. Any too
 | :--- | :--- |
 | `agent/tools.ts` | The tools, including `resolve_name` and `get_wallet_activity`. |
 | `agent/agent.ts` | The agent loop and the gossip-detective persona (`SYSTEM_PROMPT`). |
-| `agent/wallet.ts` | The agent wallet, the ETH and USDC balance, real x402 (`x402Fetch`), and the toy `payAndFetch`. |
-| `app/page.tsx` | The page: setup steps, tools list, and chat. |
+| `agent/wallet.ts` | The agent wallet, the ETH and USDC balance, and real x402 payments (`x402Fetch`). |
+| `app/page.tsx` | The page: setup steps, tools list, and chat (saved in the browser until you click Clear). |
+| `components/gossip.tsx` | The dossier card, markdown replies and the sus-o-meter. |
+| `components/swing-chain.tsx` | The swinging 3D chain hanging off the logo. |
 | `app/api/agent/route.ts` | The server endpoint that runs the agent. |
 | `app/api/wallet/route.ts` | The server endpoint that creates and reads the agent wallet. |
-| `app/api/weather/route.ts` | The mock paid weather API. |
 | `components/ui/` | Interface components from [shadcn/ui](https://ui.shadcn.com). You do not need to edit these. |
 | `.env` | Your API key and optional settings. |
 | `.agent-wallet.json` | The agent wallet, created when you click Create wallet. Never share this file. |
@@ -183,7 +222,6 @@ To use a wallet you already have, set `WALLET_PRIVATE_KEY` in `.env` instead.
 | Problem | Solution |
 | :--- | :--- |
 | The page says to add `GROQ_API_KEY` | Add your key to `.env` and restart `npm run dev`. |
-| The agent never uses my new tool | Make the `description` more specific about when the tool should be used, then restart the server. |
 | A tool fails with "no wallet yet" | Click **Create wallet** in the Setup panel, then ask again. |
 | `402 ... invalid_exact_evm_signature` | The wallet is EIP-7702-delegated, which usually means it's a public test key. Remove `WALLET_PRIVATE_KEY` from `.env`, delete `.agent-wallet.json`, restart, and click **Create wallet**. |
 | `402` with no error, or a balance error | The wallet needs Base Sepolia USDC from [faucet.circle.com](https://faucet.circle.com). |
@@ -192,15 +230,6 @@ To use a wallet you already have, set `WALLET_PRIVATE_KEY` in `.env` instead.
 | A model error appears in the chat | Check that your API key is valid, or set a different model in `GROQ_MODEL`. |
 | `413 Request too large ... tokens per minute` | Groq's free tier caps tokens per minute. Lower `MAX_TOOL_CHARS` in `agent/agent.ts`, or upgrade the Groq tier. |
 | `429` errors | Rate limited. The SDK retries automatically with exponential backoff (up to 5 times, honoring `retry-after`). If it still fails, wait a minute. |
-
-## Tech Stack
-
-1. [Next.js](https://nextjs.org) for the app and API routes.
-2. [shadcn/ui](https://ui.shadcn.com) and [Tailwind CSS](https://tailwindcss.com) for the interface.
-3. [OpenAI Node SDK](https://github.com/openai/openai-node) pointed at [Groq](https://console.groq.com/docs/openai) for tool calling.
-4. [x402](https://www.x402.org) (`@x402/fetch`, `@x402/evm`) for real pay-per-request API calls.
-5. [GoldRush](https://goldrush.dev) for multichain transaction data.
-6. [viem](https://viem.sh) for wallet creation, message signing, and reading Base Sepolia.
 
 ## License
 

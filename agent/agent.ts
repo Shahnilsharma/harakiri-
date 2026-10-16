@@ -78,13 +78,23 @@ function fitForModel(result: unknown) {
   return json;
 }
 
-export async function runAgent(history: ChatMessage[], ctx: { baseUrl: string }) {
+/** `onStatus` gets a short line for the loader before each model call, tool run and rate-limit retry. */
+export async function runAgent(history: ChatMessage[], onStatus: (status: string) => void = () => {}) {
   const groq = new OpenAI({
     baseURL: "https://api.groq.com/openai/v1",
     apiKey: process.env.GROQ_API_KEY,
     // The SDK retries 429 (and 408/409/5xx) with exponential backoff + jitter (0.5s doubling, 8s cap),
     // and waits for Groq's retry-after header instead when it's under 60s.
     maxRetries: 5,
+    // Tell the loader when Groq makes us wait; the SDK then retries on its own.
+    fetch: async (url, init) => {
+      const res = await fetch(url, init);
+      if (res.status === 429 || res.status >= 500) {
+        const wait = res.headers.get("retry-after");
+        onStatus(res.status === 429 ? `Groq is rate-limiting us, retrying${wait ? ` in ${Math.ceil(Number(wait))}s` : ""}` : "Groq hiccuped, retrying");
+      }
+      return res;
+    },
   });
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -96,6 +106,7 @@ export async function runAgent(history: ChatMessage[], ctx: { baseUrl: string })
   let paidCalls = 0;
 
   for (let i = 0; i < MAX_STEPS; i++) {
+    onStatus(i === 0 ? "reading your question" : "making sense of what it found");
     const response = await groq.chat.completions.create({ model: MODEL, messages, tools: groqTools });
     const message = response.choices[0].message;
     const calls = (message.tool_calls ?? []).filter((c) => c.type === "function");
@@ -114,7 +125,8 @@ export async function runAgent(history: ChatMessage[], ctx: { baseUrl: string })
         if (!tool) throw new Error(`No tool named ${call.function.name}`);
         if (PAID_TOOLS.has(tool.name) && ++paidCalls > MAX_PAID_CALLS)
           throw new Error(`Spend limit: at most ${MAX_PAID_CALLS} paid lookups per question. Ask again for more.`);
-        result = await tool.run(args, ctx);
+        onStatus(tool.status?.(args) ?? `running ${tool.name}`);
+        result = await tool.run(args);
       } catch (err) {
         result = { error: err instanceof Error ? err.message : String(err) };
         error = true;
